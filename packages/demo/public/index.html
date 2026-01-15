@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WebGuard JS Demo</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap');
+
+      :root {
+        --bg: #f4f1ea;
+        --ink: #1c1a16;
+        --accent: #e63946;
+        --accent-2: #457b9d;
+        --panel: #ffffff;
+        --muted: #6b6b6b;
+        --shadow: 0 18px 40px rgba(14, 24, 30, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: 'Space Grotesk', system-ui, sans-serif;
+        background: radial-gradient(circle at top left, #f7d9c4 0%, transparent 45%),
+          radial-gradient(circle at 80% 10%, #d7f2e3 0%, transparent 50%), var(--bg);
+        color: var(--ink);
+      }
+
+      .wrap {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 32px 24px 48px;
+      }
+
+      header {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+
+      h1 {
+        font-size: 42px;
+        margin: 0;
+        letter-spacing: -0.03em;
+      }
+
+      .subtitle {
+        max-width: 680px;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border-radius: 20px;
+        padding: 20px;
+        box-shadow: var(--shadow);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .panel::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, rgba(230, 57, 70, 0.08), transparent 55%);
+        pointer-events: none;
+      }
+
+      h2 {
+        margin-top: 0;
+        font-size: 20px;
+      }
+
+      .panel p {
+        margin: 0 0 16px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .controls {
+        display: grid;
+        gap: 10px;
+      }
+
+      button,
+      a.button {
+        background: var(--accent);
+        color: white;
+        border: none;
+        padding: 10px 14px;
+        border-radius: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      button.secondary {
+        background: var(--accent-2);
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #d6d3c9;
+        font-family: inherit;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 12px;
+      }
+
+      th,
+      td {
+        border-bottom: 1px solid #ece6dd;
+        padding: 8px 6px;
+        font-size: 13px;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 700;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: #f1f5f9;
+        color: #1f2937;
+      }
+
+      .status.warn {
+        background: #fff1c7;
+        color: #8a5b00;
+      }
+
+      .status.incident {
+        background: #ffe1e1;
+        color: #b32727;
+      }
+
+      .risk {
+        font-size: 36px;
+        font-weight: 700;
+      }
+
+      .signals {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 13px;
+        margin-top: 12px;
+      }
+
+      .signals span {
+        background: #f8f4ed;
+        padding: 6px 10px;
+        border-radius: 10px;
+      }
+
+      footer {
+        margin-top: 24px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      @media (max-width: 720px) {
+        h1 {
+          font-size: 32px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>WebGuard JS Demo</h1>
+        <div class="subtitle">
+          Risk is recalculated every second. Use the simulation panel to trigger suspicious patterns
+          and watch the top signals explain the score.
+        </div>
+      </header>
+
+      <div class="grid">
+        <section class="panel">
+          <h2>Normal mode</h2>
+          <p>Clicks, input, and gentle scrolling should stay below incident thresholds.</p>
+          <div class="controls">
+            <input id="normal-input" placeholder="Type something" />
+            <textarea id="normal-textarea" rows="3" placeholder="No text values are captured"></textarea>
+            <button id="normal-button" class="secondary">Normal click</button>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Signal</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Activity</td>
+                <td>Steady</td>
+              </tr>
+              <tr>
+                <td>Navigation</td>
+                <td>Low</td>
+              </tr>
+              <tr>
+                <td>Export</td>
+                <td>None</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="panel">
+          <h2>Simulate suspicious</h2>
+          <p>Use the buttons below to generate suspicious patterns.</p>
+          <div class="controls">
+            <button id="simulate-copy">Mass copy</button>
+            <button id="simulate-clicks" class="secondary">Regular click series</button>
+            <button id="simulate-nav">Fast navigation burst</button>
+            <button id="simulate-export" data-export>Export / print</button>
+            <a id="simulate-download" class="button secondary" download href="#">Export file</a>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Live panel</h2>
+          <div class="risk" id="risk-value">0.00</div>
+          <div class="status" id="risk-status">OK</div>
+          <div class="signals" id="top-signals"></div>
+          <footer>
+            Dashboard: <a href="http://localhost:3000/dashboard" target="_blank">/dashboard</a>
+          </footer>
+        </section>
+      </div>
+    </div>
+
+    <script src="demo.js" defer></script>
+  </body>
+</html>

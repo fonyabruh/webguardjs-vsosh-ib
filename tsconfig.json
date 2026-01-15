@@ -1,0 +1,17 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/detector-core"
+    },
+    {
+      "path": "./packages/detector-web"
+    },
+    {
+      "path": "./packages/server"
+    },
+    {
+      "path": "./packages/demo"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@webguard/detector-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "npm run build -w @webguard/detector-core && esbuild src/index.ts --bundle --minify --sourcemap --format=esm --platform=browser --outfile=dist/index.js"
+  },
+  "dependencies": {
+    "@webguard/detector-core": "0.1.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0"
+  }
+}
