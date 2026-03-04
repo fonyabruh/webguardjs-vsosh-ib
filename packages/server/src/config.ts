@@ -1,6 +1,7 @@
 export const serverConfig = {
   port: Number(process.env.PORT || 3000),
   apiKey: process.env.API_KEY || 'changeme',
+  webguardEnforce: process.env.WEBGUARD_ENFORCE === '1',
   databaseUrl: process.env.DATABASE_URL || '',
   pg: {
     host: process.env.PGHOST || 'localhost',

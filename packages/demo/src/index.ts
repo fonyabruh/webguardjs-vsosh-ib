@@ -1,4 +1,4 @@
-import { createWebDetector } from '@webguard/detector-web';
+import { createWebDetector, defaultDetectorConfig } from '@webguard/detector-web';
 
 const runtime = window as Window & {
   WEBGUARD_ENDPOINT?: string;
@@ -11,13 +11,45 @@ const apiKey = runtime.WEBGUARD_API_KEY || 'changeme';
 const riskValue = document.getElementById('risk-value') as HTMLDivElement;
 const riskStatus = document.getElementById('risk-status') as HTMLDivElement;
 const topSignals = document.getElementById('top-signals') as HTMLDivElement;
+const normalInput = document.getElementById('normal-input') as HTMLInputElement;
+const normalTextarea = document.getElementById('normal-textarea') as HTMLTextAreaElement;
+
+const BURST = {
+  clickCount: 140,
+  clickIntervalMs: 60,
+  keydownCount: 90,
+  keydownIntervalMs: 60,
+  inputCount: 90,
+  inputIntervalMs: 60,
+  copyCount: 50,
+  cutCount: 20,
+  pasteCount: 35,
+  clipboardIntervalMs: 50,
+  navCount: 50,
+  navIntervalMs: 80,
+  exportCount: 6,
+  exportIntervalMs: 120,
+  downloadCount: 4,
+  downloadIntervalMs: 150
+};
 
 let lastIncidentSentAt = 0;
+
+const demoDetectorConfig = {
+  ...defaultDetectorConfig,
+  thresholds: {
+    ...defaultDetectorConfig.thresholds,
+    warn: 0.55,
+    incident: 0.62,
+    reason: 0.6
+  }
+};
 
 const detector = createWebDetector(
   {
     endpoint,
-    apiKey
+    apiKey,
+    detectorConfig: demoDetectorConfig
   },
   {
     onUpdate: (result) => {
@@ -28,10 +60,10 @@ const detector = createWebDetector(
       if (incidentRecentlySent) {
         riskStatus.textContent = 'INCIDENT_SENT';
         riskStatus.className = 'status incident';
-      } else if (result.risk >= 0.85) {
+      } else if (result.risk >= demoDetectorConfig.thresholds.incident) {
         riskStatus.textContent = 'INCIDENT';
         riskStatus.className = 'status incident';
-      } else if (result.risk >= 0.7) {
+      } else if (result.risk >= demoDetectorConfig.thresholds.warn) {
         riskStatus.textContent = 'WARN';
         riskStatus.className = 'status warn';
       } else {
@@ -63,44 +95,63 @@ const simulateDownload = document.getElementById('simulate-download') as HTMLAnc
 simulateCopy.addEventListener('click', () => {
   const selectionTarget = ensureSelectionTarget();
   selectAll(selectionTarget);
-  for (let i = 0; i < 12; i += 1) {
-    const event = new Event('copy', { bubbles: true, cancelable: true });
-    selectionTarget.dispatchEvent(event);
-  }
+
+  runBurst(BURST.copyCount, BURST.clipboardIntervalMs, () => {
+    emitClipboard(selectionTarget, 'copy');
+  });
+  runBurst(
+    BURST.cutCount,
+    BURST.clipboardIntervalMs,
+    () => emitClipboard(selectionTarget, 'cut'),
+    20,
+  );
+  runBurst(
+    BURST.pasteCount,
+    BURST.clipboardIntervalMs,
+    () => emitClipboard(selectionTarget, 'paste'),
+    40,
+  );
+
+  runBurst(BURST.keydownCount, BURST.keydownIntervalMs, () => emitKeydown(normalInput), 10);
+  runBurst(BURST.inputCount, BURST.inputIntervalMs, () => emitInput(normalInput), 35);
+  runBurst(BURST.clickCount / 2, BURST.clickIntervalMs, () => emitClick(normalInput), 20);
 });
 
 simulateClicks.addEventListener('click', () => {
   const button = document.getElementById('normal-button') as HTMLButtonElement;
-  let count = 0;
-  const interval = window.setInterval(() => {
-    button.click();
-    count += 1;
-    if (count >= 20) window.clearInterval(interval);
-  }, 150);
+  runBurst(BURST.clickCount, BURST.clickIntervalMs, () => emitClick(button));
+  runBurst(
+    BURST.keydownCount,
+    BURST.keydownIntervalMs,
+    () => emitKeydown(normalTextarea),
+    BURST.clickIntervalMs / 2,
+  );
+  runBurst(
+    BURST.inputCount,
+    BURST.inputIntervalMs,
+    () => emitInput(normalTextarea),
+    BURST.clickIntervalMs / 2 + 10,
+  );
 });
 
 simulateNav.addEventListener('click', () => {
-  for (let i = 0; i < 12; i += 1) {
-    history.pushState({}, '', `#nav-${Date.now()}-${i}`);
-  }
+  runBurst(BURST.navCount, BURST.navIntervalMs, (index) => {
+    history.pushState({}, '', `#nav-${Date.now()}-${index}`);
+  });
+  runBurst(BURST.clickCount / 2, BURST.clickIntervalMs, () => emitClick(normalInput), 30);
 });
 
 simulateExport.addEventListener('click', () => {
   if (window.print) {
     window.print();
   }
+  const exportProxy = ensureExportProxy();
+  runBurst(BURST.exportCount, BURST.exportIntervalMs, () => emitClick(exportProxy), 60);
 });
 
 simulateDownload.addEventListener('click', (event) => {
   event.preventDefault();
-  const link = document.createElement('a');
-  link.download = 'export.txt';
-  link.href = `data:text/plain,export-${Date.now()}`;
-  link.style.position = 'absolute';
-  link.style.left = '-9999px';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  runBurst(BURST.downloadCount, BURST.downloadIntervalMs, () => triggerDownload(), 40);
 });
 
 function ensureSelectionTarget(): HTMLDivElement {
@@ -123,4 +174,79 @@ function selectAll(element: HTMLElement): void {
   const range = document.createRange();
   range.selectNodeContents(element);
   selection.addRange(range);
+}
+
+function runBurst(
+  count: number,
+  intervalMs: number,
+  action: (index: number) => void,
+  offsetMs = 0,
+): void {
+  const start = () => {
+    let index = 0;
+    const interval = window.setInterval(() => {
+      action(index);
+      index += 1;
+      if (index >= count) {
+        window.clearInterval(interval);
+      }
+    }, intervalMs);
+  };
+
+  if (offsetMs > 0) {
+    window.setTimeout(start, offsetMs);
+  } else {
+    start();
+  }
+}
+
+function emitClick(target: Element): void {
+  target.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+
+function emitKeydown(target: Element): void {
+  target.dispatchEvent(
+    new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'A' }),
+  );
+}
+
+function emitInput(target: Element): void {
+  target.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+}
+
+function emitClipboard(
+  target: Element,
+  type: 'copy' | 'cut' | 'paste',
+): void {
+  target.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }));
+}
+
+let exportProxy: HTMLButtonElement | null = null;
+let downloadProxy: HTMLAnchorElement | null = null;
+
+function ensureExportProxy(): HTMLButtonElement {
+  if (exportProxy) return exportProxy;
+  exportProxy = document.createElement('button');
+  exportProxy.type = 'button';
+  exportProxy.dataset.export = 'true';
+  exportProxy.style.position = 'absolute';
+  exportProxy.style.left = '-9999px';
+  document.body.appendChild(exportProxy);
+  return exportProxy;
+}
+
+function ensureDownloadProxy(): HTMLAnchorElement {
+  if (downloadProxy) return downloadProxy;
+  downloadProxy = document.createElement('a');
+  downloadProxy.download = 'export.txt';
+  downloadProxy.style.position = 'absolute';
+  downloadProxy.style.left = '-9999px';
+  document.body.appendChild(downloadProxy);
+  return downloadProxy;
+}
+
+function triggerDownload(): void {
+  const link = ensureDownloadProxy();
+  link.href = `data:text/plain,export-${Date.now()}`;
+  emitClick(link);
 }

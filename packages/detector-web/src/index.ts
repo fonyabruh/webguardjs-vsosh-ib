@@ -7,6 +7,8 @@ import {
   filterEventsByWindow
 } from '@webguard/detector-core';
 
+export { defaultDetectorConfig };
+
 export interface IncidentPayload {
   ts: number;
   sessionId: string;
@@ -42,6 +44,7 @@ export interface WebDetectorCallbacks {
 
 const QUEUE_KEY = 'webguardjs:incidentQueue';
 const RETRY_DELAYS = [1000, 3000, 10000];
+const HEARTBEAT_INTERVAL_MS = 30_000;
 
 export function createWebDetector(config: WebDetectorConfig, callbacks: WebDetectorCallbacks = {}) {
   const detectorConfig = config.detectorConfig || defaultDetectorConfig;
@@ -52,10 +55,12 @@ export function createWebDetector(config: WebDetectorConfig, callbacks: WebDetec
   let lastIncidentAt = 0;
   let lastSignature = '';
   let timer: number | null = null;
+  let heartbeatTimer: number | null = null;
   let stopped = false;
 
-  const sessionId = config.sessionId || getSessionId();
+  const sessionId = resolveSessionId(config.sessionId);
   const pageId = config.pageId || hashString(window.location.pathname || '/');
+  const heartbeatEndpoint = resolveHeartbeatEndpoint(config.endpoint);
 
   function capture(event: DetectorEvent): void {
     events.push(event);
@@ -118,6 +123,10 @@ export function createWebDetector(config: WebDetectorConfig, callbacks: WebDetec
     if (timer !== null) return;
     stopped = false;
     timer = window.setInterval(tick, tickMs);
+    void sendHeartbeat();
+    heartbeatTimer = window.setInterval(() => {
+      void sendHeartbeat();
+    }, HEARTBEAT_INTERVAL_MS);
     attachListeners(capture);
     void flushQueue(config.endpoint, config.apiKey, callbacks.onIncidentSent);
     window.addEventListener('online', handleOnline);
@@ -129,6 +138,10 @@ export function createWebDetector(config: WebDetectorConfig, callbacks: WebDetec
       window.clearInterval(timer);
       timer = null;
     }
+    if (heartbeatTimer !== null) {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
     detachListeners();
     window.removeEventListener('online', handleOnline);
   }
@@ -136,6 +149,14 @@ export function createWebDetector(config: WebDetectorConfig, callbacks: WebDetec
   async function handleOnline(): Promise<void> {
     if (stopped) return;
     await flushQueue(config.endpoint, config.apiKey, callbacks.onIncidentSent);
+  }
+
+  async function sendHeartbeat(): Promise<void> {
+    try {
+      await postHeartbeat(heartbeatEndpoint, config.apiKey, sessionId, pageId);
+    } catch {
+      // Heartbeat must never break the page flow.
+    }
   }
 
   return {
@@ -185,7 +206,8 @@ async function postIncident(
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'X-API-Key': apiKey
+      'X-API-Key': apiKey,
+      'x-webguard-session': payload.sessionId
     },
     body: JSON.stringify(payload)
   });
@@ -240,6 +262,47 @@ function loadQueue(): IncidentPayload[] {
 
 function saveQueue(queue: IncidentPayload[]): void {
   localStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
+}
+
+async function postHeartbeat(
+  endpoint: string,
+  apiKey: string,
+  sessionId: string,
+  pageId: string,
+): Promise<void> {
+  await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'X-API-Key': apiKey,
+      'x-webguard-session': sessionId
+    },
+    body: JSON.stringify({
+      sessionId,
+      pageId,
+      ts: Date.now()
+    })
+  });
+}
+
+function resolveHeartbeatEndpoint(incidentEndpoint: string): string {
+  try {
+    const parsed = new URL(incidentEndpoint, window.location.href);
+    if (parsed.pathname.endsWith('/api/v1/incidents')) {
+      parsed.pathname = parsed.pathname.replace(/\/api\/v1\/incidents$/, '/api/v1/telemetry/heartbeat');
+    } else {
+      parsed.pathname = '/api/v1/telemetry/heartbeat';
+    }
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch {
+    const trimmed = incidentEndpoint.replace(/\/api\/v1\/incidents(?:\?.*)?$/, '');
+    if (trimmed !== incidentEndpoint) {
+      return `${trimmed}/api/v1/telemetry/heartbeat`;
+    }
+    return '/api/v1/telemetry/heartbeat';
+  }
 }
 
 type Cleanup = () => void;
@@ -413,12 +476,68 @@ function isDownloadLink(element: Element): boolean {
   return link instanceof HTMLAnchorElement && link.hasAttribute('download');
 }
 
-function getSessionId(): string {
+function resolveSessionId(explicitSessionId?: string): string {
+  if (explicitSessionId) {
+    persistSessionId(explicitSessionId);
+    return explicitSessionId;
+  }
+
+  const cookieSession = getCookieValue('wg_sid');
+  if (cookieSession) {
+    persistSessionId(cookieSession);
+    return cookieSession;
+  }
+
   const existing = sessionStorage.getItem('webguardjs:sessionId');
-  if (existing) return existing;
-  const id = crypto.randomUUID();
-  sessionStorage.setItem('webguardjs:sessionId', id);
-  return id;
+  if (existing) {
+    persistSessionId(existing);
+    return existing;
+  }
+
+  const generated = createRandomSessionId();
+  persistSessionId(generated);
+  return generated;
+}
+
+function persistSessionId(sessionId: string): void {
+  try {
+    sessionStorage.setItem('webguardjs:sessionId', sessionId);
+  } catch {
+    // Ignore storage issues in restrictive browser modes.
+  }
+
+  setSessionCookie(sessionId);
+}
+
+function setSessionCookie(sessionId: string): void {
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `wg_sid=${encodeURIComponent(sessionId)}; Path=/; SameSite=Lax; Max-Age=2592000${secure}`;
+}
+
+function getCookieValue(name: string): string | null {
+  const cookies = document.cookie ? document.cookie.split(';') : [];
+  for (const cookie of cookies) {
+    const [rawName, ...rest] = cookie.trim().split('=');
+    if (rawName !== name) continue;
+    const rawValue = rest.join('=');
+    if (!rawValue) return null;
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return rawValue;
+    }
+  }
+  return null;
+}
+
+function createRandomSessionId(): string {
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
 function hashString(value: string): string {
