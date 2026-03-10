@@ -1,0 +1,25 @@
+FROM node:20-alpine AS build
+WORKDIR /app
+
+COPY package.json ./
+COPY packages/server/package.json packages/server/
+COPY packages/detector-core/package.json packages/detector-core/
+COPY packages/detector-web/package.json packages/detector-web/
+COPY packages/demo/package.json packages/demo/
+
+RUN npm install
+
+COPY tsconfig.base.json tsconfig.json ./
+COPY packages/server packages/server
+
+RUN npm run build -w @webguard/server
+
+FROM node:20-alpine
+WORKDIR /app
+
+COPY --from=build /app/packages/server/dist packages/server/dist
+COPY --from=build /app/node_modules node_modules
+COPY packages/server/package.json packages/server/package.json
+
+ENV NODE_ENV=production
+CMD ["node", "packages/server/dist/index.js"]
