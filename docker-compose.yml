@@ -1,0 +1,31 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-webguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-webguard}
+      POSTGRES_DB: ${POSTGRES_DB:-webguard}
+    #ports:
+    #  - '5432:5432'
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    environment:
+      PORT: ${PORT:-3000}
+      API_KEY: ${API_KEY:-changeme}
+      WEBGUARD_ENFORCE: ${WEBGUARD_ENFORCE:-true}
+      WEBGUARD_PAYLOAD_PROTECTION: ${WEBGUARD_PAYLOAD_PROTECTION:-true}
+      WEBGUARD_PAYLOAD_MODE: ${WEBGUARD_PAYLOAD_MODE:-block}
+      WEBGUARD_PAYLOAD_STRIKE_WINDOW_SEC: ${WEBGUARD_PAYLOAD_STRIKE_WINDOW_SEC:-900}
+      WEBGUARD_PAYLOAD_STRIKE_THRESHOLD: ${WEBGUARD_PAYLOAD_STRIKE_THRESHOLD:-1.6}
+      DATABASE_URL: postgres://${POSTGRES_USER:-webguard}:${POSTGRES_PASSWORD:-webguard}@db:5432/${POSTGRES_DB:-webguard}
+    depends_on:
+      - db
+    ports:
+      - '3000:3000'
